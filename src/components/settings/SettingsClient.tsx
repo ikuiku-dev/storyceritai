@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client";
 import { Card, CardHeader, Button, Field, Input, Textarea, Select, Badge, Callout, PageHeader, Switch, Spinner } from "@/components/ui/primitives";
+import { BackupPanel } from "@/components/settings/BackupPanel";
 
 interface Settings {
   publishingMode: string; autoPublishEnabled: boolean; maxPostsPerDay: number; minGapMinutes: number;
@@ -153,6 +154,8 @@ export function SettingsClient() {
             </p>
           </div>
         </Card>
+
+        <BackupPanel />
       </div>
     </>
   );
