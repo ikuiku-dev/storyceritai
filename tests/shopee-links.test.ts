@@ -51,7 +51,7 @@ test("classification never mutates the URL", () => {
 // The classifier now recognises those parameters and upgrades the verdict after a safe redirect.
 test("recognises the parameters Shopee's affiliate redirect actually emits", () => {
   const v = classifyLink(
-    "https://shopee.co.id/opaanlp/1743622996/51057352578?mmp_pid=an_11326480441&utm_medium=affiliates&utm_source=an_11326480441",
+    "https://shopee.co.id/opaanlp/1743622996/51057352578?mmp_pid=an_12345678901&utm_medium=affiliates&utm_source=an_12345678901",
   );
   assert.equal(v.verdict, "VALID_AFFILIATE");
   assert.equal(v.valid, true);
