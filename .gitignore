@@ -54,3 +54,6 @@ dev.db-shm
 
 # Local export bundles may contain the same content as the DB
 ceritalab-*.json
+
+# Local secret holder for the Supabase connection string.
+.supabase-url.local
