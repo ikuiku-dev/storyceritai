@@ -1,0 +1,11 @@
+[build]
+command = "npm run build:netlify"
+publish = ".next"
+
+[build.environment]
+NODE_VERSION = "22"
+# Netlify's serverless filesystem is ephemeral, so the database must live in Postgres.
+DATABASE_PROVIDER = "postgresql"
+
+[[plugins]]
+package = "@netlify/plugin-nextjs"

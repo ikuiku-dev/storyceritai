@@ -1,6 +1,7 @@
 // prisma/schema.prisma — CeritaLab AI
-// Prisma 7: datasource url lives in prisma.config.ts. Provider here is sqlite for the local-first MVP.
-// A PostgreSQL migration path is documented in docs/ARCHITECTURE.md.
+// Prisma 7: datasource url lives in prisma.config.ts.
+// The provider is env-driven: "sqlite" for local development (zero setup) and "postgresql"
+// when deployed, where the serverless filesystem cannot hold a database file.
 
 generator client {
   provider = "prisma-client-js"
