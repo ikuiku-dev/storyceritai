@@ -2,6 +2,60 @@
 // Assumption documented: any server exposing POST {base}/chat/completions and GET {base}/models
 // with a bearer key is supported. Nothing else is assumed.
 import { AIError, type AIAdapter, type CompletionRequest, type CompletionResult, type ProviderConfig } from "./types";
+import { log } from "@/lib/logger";
+
+/**
+ * Base URLs that rejected `response_format`. Process-local: once a provider proves it cannot
+ * handle the parameter we stop sending it, avoiding a wasted request on every call.
+ */
+const jsonModeUnsupported = new Set<string>();
+
+/**
+ * Ask for a bare JSON object in prose, for providers that reject `response_format`.
+ * Appended to the system message when one exists, otherwise prepended as a system turn.
+ */
+function withJsonInstruction<T extends { role: string; content: string }>(messages: T[]): T[] {
+  // Models without response_format drift from the requested shape, so the reminder has to name
+  // the exact skeleton the caller expects. Skipping this produced confidently wrong JSON.
+  const instruction =
+    "PENTING: balas HANYA dengan satu objek JSON valid dan langsung mulai dengan karakter '{'. " +
+    "Jangan menulis kalimat pembuka, penjelasan, daftar bernomor, tebal markdown, atau blok kode. " +
+    "Kunci objek WAJIB sama persis dengan yang diminta pada instruksi di atas — jangan mengganti " +
+    "nama kunci, jangan menambah kunci lain, jangan mengubah struktur. " +
+    "Jika kamu menulis teks di luar JSON atau memakai kunci buatan sendiri, jawaban dianggap gagal.";
+  const copy = [...messages] as T[];
+  const sysIdx = copy.findIndex((m) => m.role === "system");
+  if (sysIdx >= 0) copy[sysIdx] = { ...copy[sysIdx], content: `${copy[sysIdx].content}\n\n${instruction}` } as T;
+  else copy.unshift({ role: "system", content: instruction } as T);
+  // Repeat at the very end: the last instruction carries the most weight for many models.
+  const last = copy[copy.length - 1];
+  if (last.role === "user") {
+    copy[copy.length - 1] = { ...last, content: `${last.content}\n\n${instruction}` } as T;
+  } else {
+    copy.push({ role: "user", content: instruction } as T);
+  }
+  return copy;
+}
+
+/** Shared response parsing so the retry path and the normal path agree. */
+function parseCompletion(text: string): CompletionResult {
+  let json: {
+    choices?: { message?: { content?: string } }[];
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  };
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new AIError("PARSE_FAILED", "Respons provider bukan JSON yang valid");
+  }
+  const content = json.choices?.[0]?.message?.content;
+  if (typeof content !== "string") throw new AIError("PARSE_FAILED", "Respons provider tidak berisi konten teks");
+  return {
+    text: content,
+    inputTokens: json.usage?.prompt_tokens ?? null,
+    outputTokens: json.usage?.completion_tokens ?? null,
+  };
+}
 
 function chatUrl(base: string) {
   return `${base.replace(/\/+$/, "")}/chat/completions`;
@@ -55,7 +109,16 @@ export const openaiAdapter: AIAdapter = {
     };
     const temp = req.temperature ?? cfg.temperature;
     if (temp != null) body.temperature = temp;
-    if (req.jsonMode) body.response_format = { type: "json_object" };
+    // Some OpenAI-compatible providers reject `response_format` outright (400). We ask for
+    // JSON when supported, but must not fail the whole generation when it is not.
+    const wantsJson = Boolean(req.jsonMode);
+    // Prefer the real parameter; when the provider has proved it cannot convert it, fall back
+    // to an inline instruction so the model still produces parseable JSON.
+    if (wantsJson && !jsonModeUnsupported.has(cfg.baseUrl)) {
+      body.response_format = { type: "json_object" };
+    } else if (wantsJson) {
+      body.messages = withJsonInstruction(req.messages);
+    }
 
     const res = await call(
       chatUrl(cfg.baseUrl),
@@ -70,7 +133,34 @@ export const openaiAdapter: AIAdapter = {
       req.timeoutMs ?? cfg.timeoutMs
     );
 
-    const text = await res.text();
+    let text = await res.text();
+
+    // Detect a provider that refuses response_format and transparently retry without it.
+    if (!res.ok && req.jsonMode && /response_format/i.test(text) && !jsonModeUnsupported.has(cfg.baseUrl)) {
+      jsonModeUnsupported.add(cfg.baseUrl);
+      const fallbackBody: Record<string, unknown> = { ...body };
+      delete fallbackBody.response_format;
+      // Without response_format the model needs to be told to reply in JSON, otherwise it
+      // answers in prose and downstream parsing fails.
+      fallbackBody.messages = withJsonInstruction(req.messages);
+      const retry = await call(
+        chatUrl(cfg.baseUrl),
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {}),
+          },
+          body: JSON.stringify(fallbackBody),
+        },
+        req.timeoutMs ?? cfg.timeoutMs
+      );
+      log.warn("ai.response_format.unsupported", { baseUrl: cfg.baseUrl });
+      text = await retry.text();
+      if (!retry.ok) throw mapHttpError(retry.status, text);
+      return parseCompletion(text);
+    }
+
     if (!res.ok) throw mapHttpError(res.status, text);
 
     let json: {

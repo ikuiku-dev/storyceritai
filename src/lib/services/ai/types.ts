@@ -26,6 +26,7 @@ export interface CompletionResult {
 }
 
 export type AIErrorCode =
+  | "PROVIDER_SCHEMA_MISMATCH"
   | "AUTH_FAILED"
   | "INVALID_BASE_URL"
   | "TIMEOUT"

@@ -1,13 +1,14 @@
 // src/lib/services/stories/service.ts — concept → draft → revision → review pipeline.
 import "server-only";
 import { prisma } from "@/lib/db";
-import { runAI, parseJsonLoose } from "@/lib/services/ai/runtime";
+import { runAI, parseJsonLoose, coerceArrayField } from "@/lib/services/ai/runtime";
 import { AIError } from "@/lib/services/ai/types";
 import { audit } from "@/lib/audit";
 import { similarity } from "@/lib/crypto";
 import { lintStory, hasBlockingIssue, type LintIssue } from "./lint";
 import { conceptPrompt, storyPrompt, scorePrompt, factCheckPrompt, naturalnessPrompt, ANGLES } from "./prompts";
 import { z } from "zod";
+import { log } from "@/lib/logger";
 import { buildAudienceBrief, briefToPromptText } from "@/lib/services/analytics/learning";
 
 /* ─────────── Deterministic duplicate detection ─────────── */
@@ -56,7 +57,22 @@ export async function generateConcepts(input: {
   }
   const p = conceptPrompt({ audienceProblem: input.audienceProblem, audience: input.audience, productName: product?.name, sourceDigest: digest, learnedBrief, count });
   const res = await runAI({ role: "story_writer", task: "concept_generation", messages: [{ role: "system", content: p.system }, { role: "user", content: p.user }], jsonMode: true });
-  const parsed = ConceptSchema.parse(parseJsonLoose(res.text));
+  // Models without response_format support sometimes return the right content under their own
+  // key names. Repair the envelope when we can, and record that it happened rather than
+  // pretending the provider followed the schema.
+  const rawConcept = parseJsonLoose<unknown>(res.text);
+  const coerced = coerceArrayField<{ title?: string; angle?: string; premise?: string }>(rawConcept, "concepts", ["title", "angle", "premise"]);
+  if (!coerced) {
+    throw new AIError(
+      "PROVIDER_SCHEMA_MISMATCH",
+      "Model tidak mengembalikan struktur konsep yang diminta. Model ini belum mendukung output terstruktur — pilih model lain di halaman AI Providers.",
+      { status: 422, retryable: false },
+    );
+  }
+  if (coerced.repaired) {
+    log.warn("ai.concepts.schema_repaired", { model: res.model, keys: Object.keys(rawConcept as object).slice(0, 6) });
+  }
+  const parsed = ConceptSchema.parse({ concepts: coerced.value });
 
   // Enforce angle diversity: dedupe identical angles when we have enough
   const seen = new Set<string>();

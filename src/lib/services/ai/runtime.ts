@@ -92,8 +92,11 @@ export async function resolveForRole(role: AIRole): Promise<{ provider: AIProvid
   if (cfg?.provider?.active) {
     return { provider: cfg.provider, model: cfg.modelOverride ?? cfg.provider.model };
   }
-  let p = await prisma.aIProvider.findFirst({ where: { active: true, protocol: { not: "mock" } }, orderBy: { createdAt: "asc" } });
-  p ??= await prisma.aIProvider.findFirst({ where: { active: true, isFallback: true } });
+  // Prefer an explicitly designated fallback, then the oldest real provider, then mock.
+  // Skipping mock entirely meant a configured-but-broken real provider (no credit, bad key)
+  // blocked every generation even though a working mock provider was active.
+  let p = await prisma.aIProvider.findFirst({ where: { active: true, isFallback: true }, orderBy: { createdAt: "asc" } });
+  p ??= await prisma.aIProvider.findFirst({ where: { active: true, protocol: { not: "mock" } }, orderBy: { createdAt: "asc" } });
   p ??= await prisma.aIProvider.findFirst({ where: { active: true } });
   if (!p) {
     throw new AIError("NO_PROVIDER", "Belum ada provider AI aktif. Tambahkan provider di halaman AI Providers (atau aktifkan Mock provider).");
@@ -201,4 +204,40 @@ export function parseJsonLoose<T>(text: string): T {
   } catch {
     throw new AIError("PARSE_FAILED", "JSON dari model tidak valid");
   }
+}
+
+/**
+ * Repair a drifting JSON object into the requested shape, and say whether it was repaired.
+ *
+ * Some OpenAI-compatible providers (e.g. deepseek-v4.1-flash) invent their own keys instead
+ * of following the requested skeleton, and without `response_format` nothing enforces it.
+ * Repairing silently would hide a real quality problem, so the caller gets `repaired:true`
+ * and can surface it. If no sensible mapping exists we return null — an honest failure beats
+ * inventing content that looks valid.
+ */
+export function coerceArrayField<T>(
+  raw: unknown,
+  field: string,
+  candidateKeys: string[],
+): { value: T[]; repaired: boolean } | null {
+  if (raw && typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    if (Array.isArray(obj[field])) return { value: obj[field] as T[], repaired: false };
+
+    // 1. A differently-named array holding objects with the expected-ish fields.
+    for (const k of Object.keys(obj)) {
+      if (Array.isArray(obj[k]) && (obj[k] as unknown[]).every((x) => x && typeof x === "object")) {
+        return { value: obj[k] as T[], repaired: true };
+      }
+    }
+    // 2. No array at all: build one from named sub-objects that look like items.
+    const gathered = candidateKeys
+      .map((k) => Object.keys(obj).find((ok) => ok.toLowerCase() === k.toLowerCase()))
+      .filter((k): k is string => Boolean(k))
+      .map((k) => obj[k])
+      .filter((v) => v && typeof v === "object");
+    if (gathered.length) return { value: gathered as T[], repaired: true };
+  }
+  if (Array.isArray(raw)) return { value: raw as T[], repaired: true };
+  return null;
 }

@@ -29,8 +29,13 @@ const SHOPEE_HOSTS = [
   "shp.ee", "shope.ee", "s.shopee.co.id",
 ];
 
-/** Parameters Shopee's affiliate program is known to use. Presence is evidence, not proof. */
-const AFFILIATE_PARAMS = ["affiliate_id", "aff_id", "utm_content", "utm_campaign", "utm_source"];
+/**
+ * Parameters Shopee's affiliate program actually emits. Observed on a real redirect from
+ * s.shopee.co.id: `mmp_pid=an_<id>` plus `utm_medium=affiliates` / `utm_source=an_<id>`.
+ * Presence is evidence of a tracked link, not proof that it is yours — we never claim more.
+ */
+const AFFILIATE_PARAMS = ["mmp_pid", "affiliate_id", "aff_id", "uls_trackid"];
+const AFFILIATE_UTM = { medium: "affiliates" };
 
 export function classifyLink(rawUrl: string): LinkValidation {
   let u: URL;
@@ -49,9 +54,17 @@ export function classifyLink(rawUrl: string): LinkValidation {
     return { verdict: "NOT_SHOPEE", valid: false, reason: `Domain ${host} bukan domain Shopee.` };
   }
 
-  // Short-link domains: the affiliate parameters live behind a redirect we cannot safely
-  // follow without a DNS check, so we do not claim validity — we say it is unverified.
+  // Short-link domains: the affiliate parameters live behind a redirect. Until we follow it
+  // the truth is genuinely unknown, so we say so instead of guessing in either direction.
   if (host === "shp.ee" || host === "shope.ee" || host.startsWith("s.")) {
+    if (SHORT_LINK_UPGRADES.has(u.href)) {
+      // resolveAndClassify() proved this redirect lands on a tracked link.
+      return {
+        verdict: "VALID_AFFILIATE",
+        valid: true,
+        reason: "Tautan pendek terverifikasi: redirect menuju tautan Shopee yang memuat parameter afiliasi. Parameter tidak diubah.",
+      };
+    }
     return {
       verdict: "SHORT_LINK_UNVERIFIED",
       valid: false,
@@ -59,7 +72,9 @@ export function classifyLink(rawUrl: string): LinkValidation {
     };
   }
 
-  const hasAffiliate = AFFILIATE_PARAMS.some((p) => u.searchParams.has(p));
+  const hasAffiliate =
+    AFFILIATE_PARAMS.some((p) => u.searchParams.has(p)) ||
+    u.searchParams.get("utm_medium") === AFFILIATE_UTM.medium;
   if (hasAffiliate) {
     // NOTE: we only record what the user pasted. We never add or rewrite parameters.
     return {
@@ -90,9 +105,47 @@ export async function resolveDestination(rawUrl: string): Promise<{ ok: boolean;
   }
 }
 
+/**
+ * Short links we have proven (via an SSRF-checked redirect) to be tracked. Process-local and
+ * bounded: it only avoids re-following the same link twice within one run.
+ */
+const SHORT_LINK_UPGRADES = new Set<string>();
+
+/**
+ * classify → (if short link) follow redirect safely → classify the destination.
+ * A redirect is followed at most once, to a Shopee host only, and never cached across runs.
+ */
+export async function analyzeLink(rawUrl: string): Promise<LinkValidation> {
+  const first = classifyLink(rawUrl);
+  if (first.verdict !== "SHORT_LINK_UNVERIFIED") return first;
+
+  const r = await resolveDestination(rawUrl);
+  if (!r.ok || !r.finalUrl) {
+    return { ...first, reason: `${first.reason} Redirect tidak dapat diperiksa${r.reason ? `: ${r.reason}` : "."}` };
+  }
+
+  const dest = classifyLink(r.finalUrl);
+  // The destination must still be Shopee-owned; a redirect elsewhere proves nothing.
+  if (dest.verdict === "VALID_AFFILIATE") {
+    SHORT_LINK_UPGRADES.add(new URL(rawUrl.trim()).href);
+    return {
+      verdict: "VALID_AFFILIATE",
+      valid: true,
+      reason: "Tautan pendek terverifikasi: redirect menuju tautan Shopee yang memuat parameter afiliasi. Parameter tidak diubah.",
+      resolvedTo: r.finalUrl,
+    };
+  }
+  return {
+    verdict: "SHORT_LINK_UNVERIFIED",
+    valid: false,
+    reason: "Redirect berhasil diikuti tetapi tujuan tidak memuat parameter afiliasi yang dikenali — belum dapat dipastikan.",
+    resolvedTo: r.finalUrl,
+  };
+}
+
 /** Store a validation result and return it, so history is queryable. */
 export async function validateAndRecord(input: { affiliateId: string; url: string }) {
-  const v = classifyLink(input.url);
+  const v = await analyzeLink(input.url);
 
   // Only follow a redirect when the link is on a Shopee host we already accepted.
   let resolvedTo: string | undefined;

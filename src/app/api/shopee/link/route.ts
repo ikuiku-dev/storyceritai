@@ -1,6 +1,6 @@
 import { handler, ok, parseBody, ApiError } from "@/lib/api";
 import { z } from "zod";
-import { classifyLink, validateAndRecord } from "@/lib/connectors/shopee/links";
+import { analyzeLink, validateAndRecord } from "@/lib/connectors/shopee/links";
 
 export const POST = handler(async (req) => {
   const input = await parseBody(req, z.object({
@@ -10,7 +10,9 @@ export const POST = handler(async (req) => {
   }));
 
   // Without an affiliate row we can still classify, we just cannot store history.
-  if (!input.record) return ok(classifyLink(input.url));
+  // analyzeLink follows a short link once (SSRF-checked) so a proven affiliate link is not
+  // reported as "unverified" to the user.
+  if (!input.record) return ok(await analyzeLink(input.url));
   if (!input.affiliateId) throw new ApiError("affiliateId wajib untuk menyimpan validasi", 422, "AFFILIATE_ID_REQUIRED");
   return ok(await validateAndRecord({ affiliateId: input.affiliateId, url: input.url }));
 });

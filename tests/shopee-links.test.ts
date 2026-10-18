@@ -45,3 +45,30 @@ test("classification never mutates the URL", () => {
   assert.equal(url, "https://shopee.co.id/product-i.1.2");
   assert.ok(!("url" in v), "classifyLink must not return a rewritten URL");
 });
+
+// Regression: a real Shopee short link (s.shopee.co.id/…) was reported as UNVERIFIED even
+// though following it proves it carries affiliate tracking (mmp_pid + utm_medium=affiliates).
+// The classifier now recognises those parameters and upgrades the verdict after a safe redirect.
+test("recognises the parameters Shopee's affiliate redirect actually emits", () => {
+  const v = classifyLink(
+    "https://shopee.co.id/opaanlp/1743622996/51057352578?mmp_pid=an_11326480441&utm_medium=affiliates&utm_source=an_11326480441",
+  );
+  assert.equal(v.verdict, "VALID_AFFILIATE");
+  assert.equal(v.valid, true);
+});
+
+test("a plain product URL stays non-affiliate even with unrelated params", () => {
+  const v = classifyLink("https://shopee.co.id/Stand-HP-i.123.456?sp_atk=abc&smtt=0");
+  assert.equal(v.verdict, "PRODUCT_URL_NOT_AFFILIATE");
+});
+
+test("utm_medium must be exactly 'affiliates', not merely present", () => {
+  const v = classifyLink("https://shopee.co.id/Sabun-i.1.2?utm_medium=social");
+  assert.equal(v.verdict, "PRODUCT_URL_NOT_AFFILIATE");
+});
+
+test("a short link is never upgraded without a followed redirect", () => {
+  const v = classifyLink("https://s.shopee.co.id/6L5JbNOj4B");
+  assert.equal(v.verdict, "SHORT_LINK_UNVERIFIED");
+  assert.equal(v.valid, false);
+});
