@@ -141,3 +141,44 @@ docs/                  # rencana, arsitektur, status tugas
 ## Lisensi
 
 Proyek pribadi. Tidak ada jaminan. Verifikasi sendiri sebelum mempublikasikan konten yang memengaruhi orang lain.
+
+## Integrations
+
+| Integration | Status | Needs credentials |
+|---|---|---|
+| AI Provider | Works (mock provider configured) | Yes, for real models |
+| Source Collector | **Works** — RSS, public API, CSV/JSON/Markdown import | No |
+| Shopee Affiliate | Manually import only (API access unverified for this account) | No |
+| Threads | Code complete + tested against a local fake API | **Yes — live publish blocked** |
+| Auto-publish | Off by default; requires explicit confirmation + prerequisites | — |
+
+Setup per integration: `docs/INTEGRATION_SETUP.md`.
+Policies: `docs/SOURCE_COLLECTION_POLICY.md`, `docs/AUTO_PUBLISHING.md`, `docs/SECURITY.md`.
+
+### Safety properties (verified, not just intended)
+
+- **robots.txt is enforced.** Live test: Wikipedia allowed, **Reddit blocked by its own robots.txt**.
+  An unreachable robots.txt fails closed instead of assuming consent.
+- **Affiliate links are never fabricated.** A plain product URL is reported as
+  `PRODUCT_URL_NOT_AFFILIATE`; no tracking parameters are ever invented.
+- **Guardrails run twice.** At approval and again immediately before publishing.
+- **Kill switch** blocks publishing before any network call.
+- **Auto-publish cannot be enabled** without explicit confirmation *and* a connected account.
+- **Uncertain outcomes are never auto-retried** — `UNKNOWN_OUTCOME` requires a human check.
+
+## Testing
+
+```bash
+npm test        # 114 tests; serialised because they share one SQLite file
+npx tsc --noEmit
+```
+
+Tests use a local fake Threads API. **No test publishes real content.**
+
+## Known limitations
+
+- Shopee product-search and commission APIs are **not verified** for any account. The
+  connector ships in manual-import mode and says so in the UI.
+- Live Threads publishing requires your app credentials; everything up to the network
+  boundary is tested.
+- No authentication layer — this is a single-operator local tool. Do not expose publicly.
