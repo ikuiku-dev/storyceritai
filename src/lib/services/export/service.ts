@@ -130,9 +130,39 @@ export async function restoreBundle(bundle: ExportBundle) {
       const exists = await prisma.product.findUnique({ where: { id } });
       if (exists) { bump(skipped, "products"); continue; }
       const { snapshots, affiliateLinks, ...rest } = p as Record<string, unknown>;
-      await prisma.product.create({ data: rest as never });
+
+      // A product restored without its affiliate links is not the same product: the story
+      // would publish with no link. Nest them in one write so the parent cannot survive alone.
+      await prisma.product.create({
+        data: {
+          ...(rest as Record<string, unknown>),
+          // In a nested create the foreign key is implied by the parent, so passing
+          // productId again makes Prisma reject the whole write ("Unknown argument").
+          ...(Array.isArray(affiliateLinks) && affiliateLinks.length
+            ? {
+                affiliateLinks: {
+                  create: (affiliateLinks as Record<string, unknown>[]).map(
+                    ({ productId: _drop, product: _p, ...link }) => link,
+                  ) as never,
+                },
+              }
+            : {}),
+          ...(Array.isArray(snapshots) && snapshots.length
+            ? {
+                snapshots: {
+                  create: (snapshots as Record<string, unknown>[]).map(
+                    ({ productId: _drop, product: _p, ...snap }) => snap,
+                  ) as never,
+                },
+              }
+            : {}),
+        } as never,
+      });
       bump(created, "products");
-      void snapshots; void affiliateLinks;
+      if (Array.isArray(affiliateLinks) && affiliateLinks.length) {
+        bump(created, "affiliateLinks");
+      }
+      if (Array.isArray(snapshots) && snapshots.length) bump(created, "snapshots");
     } catch (e) { errors.push(`product: ${(e as Error).message.slice(0, 100)}`); }
   }
 

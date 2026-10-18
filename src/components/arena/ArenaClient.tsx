@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client";
 import { Card, CardHeader, Button, Field, Input, Select, Textarea, Badge, Callout, PageHeader, EmptyState, Spinner } from "@/components/ui/primitives";
+import { SendToQueue } from "@/components/publishing/SendToQueue";
 
 interface Step { step: number; name: string; detail: string; aiCalls: number }
 interface CandidateResult {
@@ -17,6 +18,7 @@ export function ArenaClient({ products }: { products: Product[] }) {
   const [truthMode, setTruthMode] = useState("HYPOTHETICAL");
   const [experience, setExperience] = useState("");
   const [productId, setProductId] = useState("");
+  const [approved, setApproved] = useState<Set<string>>(new Set());
   const [maxConcepts, setMaxConcepts] = useState(10);
   const [finalists, setFinalists] = useState(4);
   const [versions, setVersions] = useState(2);
@@ -60,7 +62,8 @@ export function ArenaClient({ products }: { products: Product[] }) {
     setError(null); setNotice(null); setActing(`approve:${draftId}`);
     try {
       await api(`/api/stories/${draftId}/approve`, { method: "POST", body: JSON.stringify({}) });
-      setNotice("Draft disetujui. Belum terbit — publikasi tetap manual di Threads Integration.");
+      setApproved((prev) => new Set(prev).add(draftId));
+      setNotice("Draft disetujui. Kirim ke antrean lewat tombol di bawah kartu.");
     } catch (e) { setError((e as Error).message); } finally { setActing(null); }
   }
 
@@ -219,6 +222,7 @@ export function ArenaClient({ products }: { products: Product[] }) {
                         loading={acting === `approve:${c.draftId}`}>Approve</Button>
                       <Button size="sm" variant="danger" onClick={() => reject(c.draftId)}
                         loading={acting === `reject:${c.draftId}`}>Reject</Button>
+                      {approved.has(c.draftId) && <SendToQueue draftId={c.draftId} />}
                       <a href="/studio" className="inline-flex items-center px-2 text-xs font-medium text-brand-700 hover:underline">Edit →</a>
                     </div>
                   </Card>

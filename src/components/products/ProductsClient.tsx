@@ -188,6 +188,20 @@ export function ProductsClient() {
               {sel.notes && <div className="mt-3"><Callout tone="neutral">{sel.notes}</Callout></div>}
               <p className="mt-3 text-xs leading-relaxed text-ink-500">Tautan affiliate tidak pernah dibuat otomatis — tempel versi asli dari portal afiliasi Shopee.</p>
             </div>
+
+            <div className="border-t hairline pt-4">
+              <h4 className="mb-1 text-[13px] font-semibold text-ink-800">Langkah berikutnya</h4>
+              <p className="mb-2 text-xs leading-relaxed text-ink-500">
+                Bawa produk ini ke Story Studio. Nama produk dan masalah audiensnya terisi
+                otomatis, jadi tidak perlu diketik ulang.
+              </p>
+              <a
+                href={`/studio?product=${sel.id}${sel.buyerProblem ? `&problem=${encodeURIComponent(sel.buyerProblem)}` : ""}`}
+                className="inline-flex items-center rounded-lg bg-ink-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-ink-800"
+              >
+                Buat cerita dari produk ini →
+              </a>
+            </div>
           </div>
         </Card>
       )}

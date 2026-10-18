@@ -3,6 +3,7 @@ import { useEffect, useState, useTransition } from "react";
 import { api } from "@/lib/client";
 import { Card, CardHeader, Button, Field, Input, Select, Textarea, Badge, Callout, Switch, PageHeader, Spinner, EmptyState, type Tone } from "@/components/ui/primitives";
 import { threadsLength, ago } from "@/lib/format";
+import { SendToQueue } from "@/components/publishing/SendToQueue";
 
 interface Product { id: string; name: string }
 interface Draft {
@@ -32,13 +33,21 @@ const statusTone = (s: string): Tone =>
   s === "APPROVED" ? "green" : s === "NEEDS_REVIEW" ? "amber" : s === "REJECTED" ? "red" : "neutral";
 const factTone = (s: string): Tone => (s === "PASSED" ? "green" : s === "FAILED" ? "red" : s === "WARNINGS" ? "amber" : "neutral");
 
-export function StudioClient({ products }: { products: Product[] }) {
+export function StudioClient({
+  products,
+  initialProductId = "",
+  initialProblem = "",
+}: {
+  products: Product[];
+  initialProductId?: string;
+  initialProblem?: string;
+}) {
   const [mode, setMode] = useState<"simple" | "research">("simple");
-  const [problem, setProblem] = useState("");
+  const [problem, setProblem] = useState(initialProblem);
   const [style, setStyle] = useState("santai");
   const [truthMode, setTruthMode] = useState<string>("HYPOTHETICAL");
   const [experience, setExperience] = useState("");
-  const [productId, setProductId] = useState("");
+  const [productId, setProductId] = useState(initialProductId);
   const [versions, setVersions] = useState(2);
   const [promotion, setPromotion] = useState(1);
   const [length, setLength] = useState(2);
@@ -310,6 +319,16 @@ function DraftEditor({
             {draft.status === "APPROVED" ? "Sudah disetujui" : "Setujui draft"}
           </Button>
         </div>
+
+        {draft.status === "APPROVED" && (
+          <div className="border-t hairline pt-4">
+            <p className="mb-2 text-[13px] text-ink-700">
+              Draft ini sudah disetujui. Kirim ke antrean untuk diperiksa dan diterbitkan;
+              tautan affiliate produknya ikut terbawa otomatis.
+            </p>
+            <SendToQueue draftId={draft.id} />
+          </div>
+        )}
 
         <Callout tone="blue">
           Skor rubrik dipakai untuk menyaring kandidat, <strong>bukan</strong> memprediksi viralitas. Likes bukan penjualan, dan data belum cukup bukan berarti “tidak ada pemenang”.
