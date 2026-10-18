@@ -1,4 +1,5 @@
 "use client";
+import { ModelPicker } from "@/components/providers/ModelPicker";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client";
 import { Card, CardHeader, Button, Field, Input, Textarea, Select, Badge, Callout, PageHeader, Switch, Spinner } from "@/components/ui/primitives";
@@ -34,6 +35,28 @@ export function ProvidersClient() {
   const [model, setModel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [protocol, setProtocol] = useState("openai_compatible");
+  // Which saved provider is having its model changed, and the catalogue for it.
+  const [editing, setEditing] = useState<string | null>(null);
+  const [cat, setCat] = useState<{ loading: boolean; models: string[]; error: string | null }>({ loading: false, models: [], error: null });
+
+  async function openModels(p: Provider) {
+    setEditing(p.id); setCat({ loading: true, models: [], error: null });
+    try {
+      const r = await api<{ models: string[] }>(`/api/providers/${p.id}/models`);
+      setCat({ loading: false, models: r.models ?? [], error: null });
+    } catch (e) {
+      setCat({ loading: false, models: [], error: (e as Error).message });
+    }
+  }
+
+  async function setModelFor(p: Provider, model: string) {
+    try {
+      await api(`/api/providers/${p.id}`, { method: "PATCH", body: JSON.stringify({ model }) });
+      setEditing(null);
+      setNotice(`Model ${p.name} diganti ke ${model}. Jalankan Test Model.`);
+      await load();
+    } catch (e) { setError((e as Error).message); }
+  }
 
   async function load() {
     try {
@@ -94,7 +117,15 @@ export function ProvidersClient() {
             <Field label="Base URL" required hint="Contoh: https://api.openai.com/v1 atau http://localhost:11434/v1">
               <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
             </Field>
-            <Field label="Model" required><Input value={model} onChange={(e) => setModel(e.target.value)} placeholder="gpt-4o-mini / llama3.1" /></Field>
+            <Field label="Model" required hint="Daftar diambil dari Base URL + API key di atas, jadi hanya model yang bisa dipakai kunci Anda yang muncul.">
+              <ModelPicker
+                baseUrl={baseUrl}
+                apiKey={apiKey}
+                protocol={protocol}
+                value={model}
+                onChange={setModel}
+              />
+            </Field>
             <Field label="API key" hint="Disimpan terenkripsi. Kosongkan untuk provider lokal tanpa auth.">
               <Input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
             </Field>
@@ -124,11 +155,38 @@ export function ProvidersClient() {
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       <Button size="sm" onClick={() => act(p.id, "conn", `/api/providers/${p.id}/test-connection`)} loading={busy === `conn:${p.id}`}>Test Connection</Button>
                       <Button size="sm" onClick={() => act(p.id, "model", `/api/providers/${p.id}/test-model`)} loading={busy === `model:${p.id}`}>Test Model</Button>
+                      <Button size="sm" variant="ghost" onClick={() => (editing === p.id ? setEditing(null) : void openModels(p))}>
+                        {editing === p.id ? "Tutup" : "Ganti model"}
+                      </Button>
                       <Button size="sm" variant="ghost" onClick={async () => { await api(`/api/providers/${p.id}`, { method: "PATCH", body: JSON.stringify({ active: !p.active }) }); await load(); }}>
                         {p.active ? "Nonaktifkan" : "Aktifkan"}
                       </Button>
                       <Button size="sm" variant="ghost" onClick={async () => { if (confirm(`Hapus ${p.name}?`)) { await api(`/api/providers/${p.id}`, { method: "DELETE" }); await load(); } }}>Hapus</Button>
                     </div>
+                    {editing === p.id && (
+                      <div className="mt-2 rounded-lg border hairline bg-[var(--surface-2,theme(colors.slate.50))] p-2">
+                        {cat.loading ? (
+                          <p className="px-1 py-2 text-[12px] text-ink-500">Memuat model dari {p.baseUrl}…</p>
+                        ) : cat.error ? (
+                          <p className="px-1 py-2 text-[12px] text-danger-500">{cat.error}</p>
+                        ) : (
+                          <>
+                            <p className="px-1 pb-1 text-[11.5px] text-ink-500">{cat.models.length} model tersedia untuk kunci ini · saat ini <span className="mono">{p.model}</span></p>
+                            <p className="px-1 pb-1.5 text-[11px] text-ink-400">
+                              Pipeline cerita memerlukan keluaran JSON terstruktur. Model yang tidak mendukungnya akan ditolak saat membuat konsep — uji dengan <span className="font-medium">Test Model</span> setelah mengganti.
+                            </p>
+                            <select
+                              className="mono w-full rounded-lg border hairline bg-white px-2 py-1.5 text-[12.5px]"
+                              value={p.model}
+                              onChange={(e) => void setModelFor(p, e.target.value)}
+                            >
+                              {!cat.models.includes(p.model) && <option value={p.model}>{p.model} (tersimpan, tidak ada di daftar)</option>}
+                              {cat.models.map((m) => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>

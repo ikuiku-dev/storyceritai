@@ -1,6 +1,7 @@
 // src/lib/services/providers.ts — provider CRUD, secret handling, connection tests.
 import "server-only";
 import { prisma } from "@/lib/db";
+import { isBlockedHostname, isPrivateIPv4, isBlockedIPv6 } from "@/lib/net/ssrf";
 import { sealSecret, maskSecret } from "@/lib/crypto";
 import { audit } from "@/lib/audit";
 import { adapterFor, toConfig } from "@/lib/services/ai/runtime";
@@ -131,4 +132,47 @@ export async function listModels(id: string) {
   if (!p) throw new AIError("MODEL_NOT_FOUND", "Provider tidak ditemukan");
   const adapter = adapterFor(p.protocol);
   return adapter.listModels(toConfig(p));
+}
+
+/**
+ * List models for credentials that have not been saved yet.
+ *
+ * The settings screen needs to show "what can this key actually use?" before the provider
+ * exists, so this cannot go through the database-backed path. SSRF protection still applies:
+ * the adapter validates the base URL and refuses private/loopback hosts.
+ */
+export async function fetchModelsForCredentials(input: {
+  baseUrl: string;
+  apiKey: string | null;
+  protocol: string;
+}) {
+  if (input.protocol === "mock") return ["mock-fast", "mock-slow"];
+  // Guard the one place user-supplied input reaches the network before the provider is saved.
+  let parsed: URL;
+  try {
+    parsed = new URL(input.baseUrl);
+  } catch {
+    throw new AIError("INVALID_BASE_URL", "Base URL tidak valid");
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new AIError("INVALID_BASE_URL", "Base URL harus diawali http:// atau https://");
+  }
+  // Cloud metadata endpoints are never a legitimate model provider. isBlockedHostname only
+  // matches names, so literal IPs must be checked explicitly or 169.254.169.254 slips through.
+  const bareHost = parsed.hostname.replace(/^\[|\]$/g, "");
+  const isLoopback = bareHost === "localhost" || bareHost === "127.0.0.1" || bareHost === "::1";
+  if (!isLoopback && (isBlockedHostname(bareHost) || isPrivateIPv4(bareHost) || isBlockedIPv6(bareHost))) {
+    throw new AIError("INVALID_BASE_URL", "Host tidak diizinkan");
+  }
+
+  const adapter = adapterFor(input.protocol);
+  const models = await adapter.listModels({
+    baseUrl: input.baseUrl.replace(/\/+$/, ""),
+    apiKey: input.apiKey,
+    model: "",
+    timeoutMs: 15000,
+    maxOutputTokens: 0,
+    temperature: null,
+  } as never);
+  return models;
 }

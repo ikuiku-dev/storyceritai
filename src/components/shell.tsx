@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NAV, NAV_GROUPS } from "@/lib/nav";
 
 function Logo() {
@@ -15,10 +15,32 @@ function Logo() {
   );
 }
 
+const NAV_SCROLL_KEY = "ceritalab:nav-scroll";
+
+/**
+ * Restore the sidebar scroll offset after navigating. Next.js keeps the layout mounted, but
+ * a fresh navigation re-renders the list and browsers reset scrollTop, which is what made the
+ * menu "jump back to the top" every time a grouped item was chosen.
+ */
+function useRestoreNavScroll() {
+  const ref = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const saved = Number(sessionStorage.getItem(NAV_SCROLL_KEY) ?? "0");
+    if (saved > 0) el.scrollTop = saved;
+    const onScroll = () => sessionStorage.setItem(NAV_SCROLL_KEY, String(el.scrollTop));
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  });
+  return ref;
+}
+
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const navRef = useRestoreNavScroll();
   return (
-    <nav className="flex-1 space-y-5 px-3 py-4" aria-label="Navigasi utama">
+    <nav ref={navRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-3 py-4 [scrollbar-width:thin] [scrollbar-gutter:stable]" aria-label="Navigasi utama">
       {NAV_GROUPS.map((group) => {
         const items = NAV.filter((n) => n.group === group);
         if (!items.length) return null;
@@ -56,12 +78,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-[var(--bg)] lg:grid lg:grid-cols-[236px_1fr]">
       {/* Desktop sidebar */}
-      <aside className="sticky top-0 hidden h-screen flex-col border-r hairline bg-[#f1f4f7] lg:flex">
-        <div className="py-4">
+      <aside className="sticky top-0 hidden h-screen flex-col overflow-hidden border-r hairline bg-[#f1f4f7] lg:flex">
+        <div className="shrink-0 py-4">
           <Logo />
         </div>
         <NavLinks />
-        <div className="border-t hairline px-4 py-3">
+        <div className="shrink-0 border-t hairline px-4 py-3">
           <p className="text-[11px] leading-relaxed text-ink-400">Mode lokal · data tidak keluar mesin tanpa provider yang Anda aktifkan.</p>
         </div>
       </aside>
@@ -74,7 +96,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </button>
       </div>
       {open && (
-        <div className="border-b hairline bg-[#f1f4f7] lg:hidden">
+        <div className="max-h-[70vh] overflow-y-auto border-b hairline bg-[#f1f4f7] lg:hidden">
           <NavLinks onNavigate={() => setOpen(false)} />
         </div>
       )}
