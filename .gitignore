@@ -39,3 +39,18 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local backups
+backups/
+
+# Local database — contains real user data and encrypted API key ciphertext.
+# Never commit it; use `npm run backup` for a deliberate, out-of-repo backup.
+dev.db
+dev.db-journal
+dev.db-wal
+dev.db-shm
+*.db
+!prisma/*.db
+
+# Local export bundles may contain the same content as the DB
+ceritalab-*.json

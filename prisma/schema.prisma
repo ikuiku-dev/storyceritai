@@ -1,0 +1,507 @@
+// prisma/schema.prisma — CeritaLab AI
+// Prisma 7: datasource url lives in prisma.config.ts. Provider here is sqlite for the local-first MVP.
+// A PostgreSQL migration path is documented in docs/ARCHITECTURE.md.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ─────────────────────────── Settings / config ───────────────────────────
+
+model UserSettings {
+  id        String   @id @default("singleton")
+  // Publishing safety
+  publishingMode     String @default("MANUAL_APPROVAL") // DRAFT_ONLY | MANUAL_APPROVAL | SCHEDULED_APPROVAL | AUTO_PUBLISH
+  autoPublishEnabled Boolean @default(false)
+  maxPostsPerDay     Int     @default(3)
+  minGapMinutes      Int     @default(120)
+  requireAffiliateLink Boolean @default(false)
+  requireFactCheckPass Boolean @default(true)
+  disclosureText     String @default("Catatan: tautan ini adalah tautan affiliate. Aku dapat menerima komisi jika terjadi pembelian yang memenuhi ketentuan program.")
+  disclosureEnabled  Boolean @default(true)
+  aiContentLabelEnabled Boolean @default(false)
+  timezone           String @default("Asia/Jakarta")
+  language           String @default("id")
+  // Cost guards (USD)
+  dailyBudgetUsd     Float?
+  monthlyBudgetUsd   Float?
+  // Scoring weights (JSON string) — validated by Zod on write
+  scoringWeightsJson String @default("{\"problemFit\":25,\"demandEvidence\":20,\"dataQuality\":15,\"demonstrability\":15,\"commission\":15,\"risk\":10}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AIProvider {
+  id            String  @id @default(cuid())
+  name          String
+  protocol      String  @default("openai_compatible") // openai_compatible | mock
+  baseUrl       String
+  apiKeyCipher  String? // AES-GCM sealed; never returned to client
+  apiKeyMask    String? // e.g. "sk-…3f9a" for display only
+  model         String
+  timeoutMs     Int     @default(60000)
+  maxOutputTokens Int   @default(2000)
+  temperature   Float?
+  maxRetries    Int     @default(2)
+  contextWindow Int?
+  priceInputPer1M  Float? // USD per 1M input tokens, user-supplied only
+  priceOutputPer1M Float?
+  active        Boolean @default(true)
+  isFallback    Boolean @default(false)
+  notes         String?
+  lastTestedAt  DateTime?
+  lastTestOk    Boolean?
+  lastTestError String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  roleConfigs AIModelConfiguration[]
+  costRecords CostRecord[]
+  jobs        Job[]
+
+  @@index([active])
+}
+
+model AIModelConfiguration {
+  id         String  @id @default(cuid())
+  role       String  // research_extractor | audience_analyst | story_writer | naturalness_editor | critical_reviewer | product_matcher | experiment_analyst | final_validator
+  providerId String
+  modelOverride String?
+  temperatureOverride Float?
+  active     Boolean @default(true)
+  provider   AIProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([role])
+  @@index([providerId])
+}
+
+model CostRecord {
+  id         String @id @default(cuid())
+  providerId String?
+  provider   AIProvider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  model      String
+  task       String
+  inputTokens  Int?
+  outputTokens Int?
+  costUsd      Float? // null when price not configured — never 0 by assumption
+  latencyMs    Int?
+  ok           Boolean @default(true)
+  errorCode    String?
+  refType      String?
+  refId        String?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([providerId])
+}
+
+// ─────────────────────────── Products / affiliate ───────────────────────────
+
+model Product {
+  id          String @id @default(cuid())
+  name        String
+  shopName    String?
+  category    String?
+  url         String?
+  targetAudience String?
+  buyerProblem   String?
+  notes       String?
+  sourceOrigin   String  @default("MANUAL") // MANUAL | URL | CSV_IMPORT | JSON_IMPORT | SHOPEE_OPEN_API | AFFILIATE_FEED
+  verificationStatus String @default("UNVERIFIED") // UNVERIFIED | USER_CONFIRMED | API_VERIFIED
+  // Opportunity score inputs — null means "unknown", never fabricated
+  problemFitScore    Int? // 0-100, user or model estimate with reason
+  problemFitReason   String?
+  demandEvidenceScore Int?
+  demandEvidenceReason String?
+  dataQualityScore   Int?
+  dataQualityReason  String?
+  demonstrabilityScore Int?
+  demonstrabilityReason String?
+  commissionScore    Int?
+  commissionReason   String?
+  riskScore          Int?
+  riskReason         String?
+  opportunityScore   Float?
+  opportunityComputedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  snapshots    ProductSnapshot[]
+  affiliateLinks AffiliateLink[]
+  concepts     StoryConcept[]
+  variants     ExperimentVariant[]
+
+  @@index([createdAt])
+}
+
+model ProductSnapshot {
+  id         String @id @default(cuid())
+  productId  String
+  product    Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  priceIdr   Int?
+  rating     Float?
+  reviewCount Int?
+  soldCount  Int? // only if the source provides it
+  variantsJson String?
+  description String?
+  sourceOrigin String
+  fetchedAt  DateTime @default(now())
+
+  @@index([productId, fetchedAt])
+}
+
+model AffiliateLink {
+  id         String @id @default(cuid())
+  productId  String
+  product    Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productUrl String?
+  affiliateUrl String
+  urlSource  String  @default("MANUAL") // MANUAL | SHOPEE_AFFILIATE_PORTAL | CSV_IMPORT
+  validationStatus String @default("UNVERIFIED") // UNVERIFIED | VALID | INVALID | UNREACHABLE
+  validationNote String?
+  checkedAt  DateTime?
+  active     Boolean @default(true)
+  campaignId String?
+  subId      String?
+  commissionPerOrderIdr Int?
+  commissionSource String?
+  commissionPeriod String?
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([productId])
+  @@index([active])
+}
+
+// ─────────────────────────── Sources / insights ───────────────────────────
+
+model Source {
+  id         String @id @default(cuid())
+  kind       String  @default("ARTICLE") // ARTICLE | FORUM | REVIEW | COMMENT | THREADS_POST | USER_NOTE | INTERVIEW | TRANSCRIPT | FILE_IMPORT
+  title      String?
+  url        String?
+  domain     String?
+  author     String? // display only, never used to re-identify
+  permissionStatus String @default("UNKNOWN") // ALLOWED | RESTRICTED | UNKNOWN | USER_PROVIDED
+  accessStatus String @default("PENDING") // PENDING | EXTRACTED | FAILED | BLOCKED
+  extractionError String?
+  summary    String?
+  context    String?
+  contentHash String? // sha256 of normalized text, dedupe
+  rawText    String?
+  wordCount  Int?
+  fetchedAt  DateTime?
+  staleAfter DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  excerpts  SourceExcerpt[]
+  insights  AudienceInsight[]
+
+  @@index([contentHash])
+  @@index([accessStatus])
+}
+
+model SourceExcerpt {
+  id       String @id @default(cuid())
+  sourceId String
+  source   Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  text     String // short verbatim quote (bounded)
+  locator  String? // paragraph/line/timecode
+  createdAt DateTime @default(now())
+
+  @@index([sourceId])
+}
+
+model AudienceInsight {
+  id         String @id @default(cuid())
+  sourceId   String?
+  source     Source? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  category   String // PROBLEM | NEED | CONTEXT | LANGUAGE | OBJECTION | PREFERENCE | QUESTION | PRODUCT_TYPE | SEGMENT
+  statement  String
+  evidenceType String @default("INTERPRETATION") // OBSERVATION | PATTERN | INTERPRETATION | HYPOTHESIS | EXPERIMENT
+  evidenceQuote String?
+  confidence Int @default(50) // 0-100
+  sampleCount Int?
+  limitation String?
+  audienceSegment String?
+  observedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([evidenceType])
+}
+
+// ─────────────────────────── Stories ───────────────────────────
+
+model StoryConcept {
+  id          String @id @default(cuid())
+  title       String
+  angle       String // problem_observation | discovery_story | mistake | before_after | dilemma | opinion | tips | comparison | question | mini_case | product_discovery
+  premise     String
+  audienceProblem String?
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  sourceIdsJson String? // JSON array of source ids
+  status      String @default("CANDIDATE") // CANDIDATE | SELECTED | REJECTED | DRAFTED
+  rejectionReason String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  drafts      StoryDraft[]
+  variants    ExperimentVariant[]
+
+  @@index([status])
+}
+
+model StoryDraft {
+  id          String @id @default(cuid())
+  conceptId   String
+  concept     StoryConcept @relation(fields: [conceptId], references: [id], onDelete: Cascade)
+  title       String?
+  text        String
+  truthMode   String // REAL_EXPERIENCE | SOURCE_BASED | HYPOTHETICAL | OPINION | PRODUCT_EXPLAINER
+  stylePreset String?
+  promotionLevel Int @default(1) // 0-4
+  status      String @default("DRAFT") // DRAFT | NEEDS_REVIEW | APPROVED | REJECTED | ARCHIVED
+  factCheckStatus String @default("NOT_RUN") // NOT_RUN | PASSED | FAILED | WARNINGS
+  duplicateOfId String?
+  similarityScore Float?
+  currentRevision Int @default(1)
+  approvedAt  DateTime?
+  approvedBy  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  revisions   StoryRevision[]
+  scores      StoryScore[]
+  publishedPosts PublishedPost[]
+  variants    ExperimentVariant[]
+
+  @@index([status])
+  @@index([conceptId])
+}
+
+model StoryRevision {
+  id        String @id @default(cuid())
+  draftId   String
+  draft     StoryDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  revision  Int
+  text      String
+  changeNote String?
+  actor     String @default("user") // user | ai_writer | ai_editor
+  createdAt DateTime @default(now())
+
+  @@unique([draftId, revision])
+}
+
+model StoryScore {
+  id       String @id @default(cuid())
+  draftId  String
+  draft    StoryDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  rubricVersion String @default("v1")
+  naturalness Float?
+  relevance   Float?
+  clarity     Float?
+  originality Float?
+  trustTransparency Float?
+  productFit  Float?
+  endingQuality Float?
+  weightedScore Float?
+  penaltiesJson String? // JSON array of {code, points, reason}
+  reasonsJson   String? // JSON per-dimension reasons
+  scoredBy    String @default("ai") // ai | user
+  warningsJson String?
+  createdAt DateTime @default(now())
+
+  @@index([draftId])
+}
+
+// ─────────────────────────── Arena / experiments ───────────────────────────
+
+model StoryExperiment {
+  id          String @id @default(cuid())
+  name        String
+  hypothesis  String
+  productId   String?
+  audience    String?
+  variables   String?
+  status      String @default("DRAFT") // DRAFT | RUNNING | AWAITING_DATA | CONCLUDED | CANCELLED
+  rubricVersion String @default("v1")
+  observationDays Int @default(7)
+  conclusion  String?
+  recommendation String?
+  confidence  String? // INSUFFICIENT | INDICATIVE | SUPPORTED
+  sampleSize  Int @default(0)
+  startedAt   DateTime?
+  concludedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  variants   ExperimentVariant[]
+
+  @@index([status])
+}
+
+model ExperimentVariant {
+  id          String @id @default(cuid())
+  experimentId String
+  experiment  StoryExperiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+  label       String // A, B, C…
+  conceptId   String?
+  concept     StoryConcept? @relation(fields: [conceptId], references: [id], onDelete: SetNull)
+  draftId     String?
+  draft       StoryDraft? @relation(fields: [draftId], references: [id], onDelete: SetNull)
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  hypothesisNote String?
+  createdAt   DateTime @default(now())
+
+  posts      PublishedPost[]
+
+  @@index([experimentId])
+}
+
+// ─────────────────────────── Publishing ───────────────────────────
+
+model PublishedPost {
+  id           String @id @default(cuid())
+  draftId      String?
+  draft        StoryDraft? @relation(fields: [draftId], references: [id], onDelete: SetNull)
+  variantId    String?
+  variant      ExperimentVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  platform     String @default("THREADS")
+  finalText    String
+  affiliateUrl String?
+  disclosureIncluded Boolean @default(false)
+  status       String @default("DRAFT") // DRAFT | WAITING_APPROVAL | APPROVED | SCHEDULED | PUBLISHING | PUBLISHED | FAILED | CANCELLED
+  dedupeKey    String @unique // sha256(text+affiliateUrl) — publish idempotency
+  containerId  String? // Threads media container
+  remotePostId String?
+  remotePermalink String?
+  scheduledAt  DateTime?
+  publishedAt  DateTime?
+  failedReason String?
+  attempts     Int @default(0)
+  approvedAt   DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  metrics    PostMetricSnapshot[]
+
+  @@index([status])
+  @@index([scheduledAt])
+}
+
+model PostMetricSnapshot {
+  id        String @id @default(cuid())
+  postId    String
+  post      PublishedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  views     Int?
+  likes     Int?
+  replies   Int?
+  reposts   Int?
+  quotes    Int?
+  shares    Int?
+  clicks    Int?
+  profileVisits Int?
+  attributedOrders Int?
+  commissionIdr Int?
+  source    String @default("THREADS_API") // THREADS_API | MANUAL
+  note      String? // provenance for manual entries
+  capturedAt DateTime @default(now())
+
+  @@index([postId, capturedAt])
+}
+
+model PublishingSchedule {
+  id        String @id @default(cuid())
+  postId    String?
+  name      String?
+  cadence   String @default("ONCE") // ONCE | DAILY | WEEKLY
+  timeOfDay String? // "19:30"
+  daysOfWeekJson String?
+  timezone  String @default("Asia/Jakarta")
+  nextRunAt DateTime?
+  active    Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, nextRunAt])
+}
+
+// ─────────────────────────── Integration / infra ───────────────────────────
+
+model IntegrationConnection {
+  id         String @id @default(cuid())
+  provider   String @unique // threads | shopee_open_api | shopee_affiliate_feed
+  status     String @default("NOT_CONFIGURED") // NOT_CONFIGURED | CONNECTED | EXPIRED | ERROR
+  accountId  String?
+  accountName String?
+  scopes     String?
+  tokenCipher String? // long-lived token, AES-GCM
+  tokenExpiresAt DateTime?
+  refreshable Boolean @default(true)
+  lastRefreshAt DateTime?
+  lastError  String?
+  metadataJson String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Job {
+  id         String @id @default(cuid())
+  type       String
+  payloadJson String
+  status     String @default("QUEUED") // QUEUED | RUNNING | SUCCEEDED | FAILED | CANCELLED
+  dedupeKey  String? @unique
+  attempts   Int @default(0)
+  maxAttempts Int @default(3)
+  runAt      DateTime @default(now())
+  lockedAt   DateTime?
+  lockOwner  String?
+  lastError  String?
+  resultJson String?
+  providerId String?
+  provider   AIProvider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([status, runAt])
+}
+
+model AuditLog {
+  id        String @id @default(cuid())
+  actor     String @default("system") // user | system | worker
+  action    String
+  entityType String?
+  entityId  String?
+  summary   String
+  metaJson  String?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([action])
+}
+
+model PromptTemplate {
+  id        String @id @default(cuid())
+  key       String @unique
+  name      String
+  role      String?
+  body      String
+  version   Int @default(1)
+  active    Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

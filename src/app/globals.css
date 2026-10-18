@@ -1,26 +1,90 @@
 @import "tailwindcss";
 
+@theme {
+  --color-ink-950: #0b0e14;
+  --color-ink-900: #11151d;
+  --color-ink-850: #161b25;
+  --color-ink-800: #1c222e;
+  --color-ink-700: #2a3241;
+  --color-ink-600: #3d4759;
+  --color-ink-500: #5a6678;
+  --color-ink-400: #8b97a8;
+  --color-ink-300: #b4becb;
+  --color-ink-200: #d6dde6;
+  --color-ink-100: #eef2f7;
+  --color-paper: #fbfcfd;
+
+  --color-brand-50: #eef7f2;
+  --color-brand-100: #d3ecdf;
+  --color-brand-300: #7cc4a0;
+  --color-brand-500: #2f9e6b;
+  --color-brand-600: #248257;
+  --color-brand-700: #1b6544;
+
+  --color-amber-soft: #b9812c;
+  --color-danger-500: #c8463f;
+  --color-danger-100: #fbe9e8;
+  --color-warn-100: #fdf3e2;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius-card: 14px;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #f6f8fa;
+  --surface: #ffffff;
+  --border: #e3e8ee;
+  --text: #11151d;
+  --muted: #5a6678;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+html, body { height: 100%; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection { background: var(--color-brand-100); }
+
+/* Focus ring: visible but not noisy */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+
+.hairline { border-color: var(--border); }
+
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* Story preview: generous line-height for readability of Indonesian prose */
+.prose-story {
+  font-size: 1.0125rem;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  color: #1b2230;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #eef1f5 25%, #e6eaef 37%, #eef1f5 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+@keyframes shimmer { 0% { background-position: 100% 50% } 100% { background-position: 0 50% } }
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+  * { transition-duration: 0.01ms !important; }
 }
