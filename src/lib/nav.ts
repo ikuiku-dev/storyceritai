@@ -13,6 +13,9 @@ export const NAV: NavItem[] = [
 
   { href: "/products", label: "Product Research", group: "Riset", description: "Kandidat produk & skor peluang" },
   { href: "/sources/collector", label: "Source Collector", group: "Riset", description: "Uji izin & impor data" },
+  { href: "/sources/health", label: "Source Health", group: "Riset", description: "Kesegaran & kualitas data" },
+  { href: "/products/compare", label: "Compare Products", group: "Riset", description: "Bandingkan kandidat berdampingan" },
+  { href: "/research", label: "Research Scheduler", group: "Riset", description: "Rencanakan & jalankan riset" },
   { href: "/sources", label: "Source Library", group: "Riset", description: "Referensi publik & catatan" },
   { href: "/insights", label: "Audience Insights", group: "Riset", description: "Masalah, bahasa, keberatan" },
   { href: "/knowledge", label: "Knowledge Base", group: "Riset", description: "Pelajaran dari eksperimen" },
@@ -20,6 +23,7 @@ export const NAV: NavItem[] = [
   { href: "/affiliate", label: "Affiliate Links", group: "Distribusi", description: "Tautan & validasi" },
   { href: "/affiliate/links", label: "Link Manager", group: "Distribusi", description: "Validasi tautan afiliasi" },
   { href: "/automation", label: "Automation Rules", group: "Distribusi", description: "Kebijakan & kill switch" },
+  { href: "/queue", label: "Publishing Queue", group: "Distribusi", description: "Antrean & jadwal terbit" },
   { href: "/jobs", label: "Execution History", group: "Distribusi", description: "Riwayat job publikasi" },
   { href: "/threads", label: "Threads Integration", group: "Distribusi", description: "OAuth, test, publish" },
 

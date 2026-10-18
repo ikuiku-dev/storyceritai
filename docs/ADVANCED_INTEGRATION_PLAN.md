@@ -141,3 +141,35 @@ Fixed with `--test-concurrency=1`, and by making each import test use unique con
 - Phase 13 docs (`INTEGRATION_SETUP.md`, `THREADS_SETUP.md`, `SHOPEE_CONNECTOR.md`,
   `SOURCE_COLLECTION_POLICY.md`, `AUTO_PUBLISHING.md`, `SECURITY.md`, `TROUBLESHOOTING.md`).
 - Shopee API + live Threads publish remain blocked on credentials; documented as such.
+
+---
+
+# Phase 10/13 — UI and docs complete
+
+## Screens (23 routes, nav parity verified both ways)
+
+Added after a spec sweep found 6 PRD Phase 10 screens missing:
+
+| Screen | Route | Verified |
+|---|---|---|
+| Integrations Center | `/integrations` | statuses render honestly |
+| Source Collector | `/sources/collector` | **Reddit blocked through the UI** |
+| Source Health | `/sources/health` | staleness + injection flags |
+| Research Scheduler | `/research` | run created and listed via UI |
+| Publishing Queue | `/queue` | queue + statuses |
+| Automation Rules | `/automation` | **kill switch pressed in browser** |
+| Affiliate Link Manager | `/affiliate/links` | product URL correctly rejected |
+| Execution History | `/jobs` | state-machine statuses |
+| Product Comparison | `/products/compare` | 3 real products, gaps shown as — |
+
+Threads Account is covered by `/threads`; Product Discovery by `/products`.
+
+## The audit lesson worth keeping
+
+Build green, 114 tests passing, all routes 200 — and **6 required screens did not exist**.
+Only enumerating the spec's named items by name found them. That sweep is now a test
+(`tests/nav-parity.test.ts`), proven to fail when a dead link is introduced.
+
+## Test count
+
+119/119. tsc clean. Build passes (67 static pages). 23/23 routes 200.
