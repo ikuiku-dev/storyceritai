@@ -30,6 +30,11 @@ ngrok http 3939                                     # butuh akun gratis
 
 Catat URL yang muncul, misalnya `https://abc-def.trycloudflare.com`.
 
+> Kredensial **tidak** diisi di `.env`. Semuanya ditempel di halaman **Threads Integration**
+> dan disimpan terenkripsi di database. Hanya butuh satu kali restart, dan itu bukan karena
+> konfigurasi kredensial. (Variable `.env` masih didukung untuk deployment headless, tapi
+> bukan jalur yang direkomendasikan.)
+
 ---
 
 ## Langkah 1 — Buat app di Meta for Developers
@@ -65,30 +70,36 @@ Aplikasi ini secara sengaja **tidak meminta** scope yang tidak dipakai.
 
 ## Langkah 5 — Isi `.env` dan restart
 
-Tambahkan ke `.env` di root proyek:
+Buka `http://localhost:3939/threads` → bagian **Kredensial App Meta**, lalu tempel:
 
-```bash
-THREADS_APP_ID="<app id>"
-THREADS_APP_SECRET="<app secret>"
-THREADS_REDIRECT_URI="https://<domain-tunnel-anda>/api/threads/callback"
-```
+| Kolom | Nilai |
+|---|---|
+| App ID | dari Meta → App settings → Basic |
+| App Secret | dari Meta → App settings → Basic |
+| Redirect URI | `https://<domain-tunnel-anda>/api/threads/callback` |
 
-Lalu **restart server** (variabel env dibaca saat proses start):
-
-```bash
-# hentikan dev server, lalu
-npm run dev
-```
+Klik **Simpan kredensial**. Tidak perlu edit file apa pun, dan **tidak perlu restart**.
 
 ### Verifikasi langkah 5
 
 ```bash
-curl -s http://localhost:3939/api/threads/connection | jq '.data'
+curl -s http://localhost:3939/api/threads/app-config | jq '.data'
 ```
 
-Harapan: `{"configuredOnServer": true, "status": "NOT_CONNECTED", ...}`
+Harapan:
 
-Jika masih `false`, env belum terbaca — periksa nama variabel dan restart ulang.
+```json
+{ "appIdMask": "1234…5678", "hasSecret": true,
+  "redirectUri": "https://.../api/threads/callback", "source": "database" }
+```
+
+`source: "database"` berarti konfigurasi berasal dari halaman web. `appIdMask` menampilkan
+ID dalam bentuk tersamarkan. **App Secret tidak pernah dikembalikan** oleh endpoint ini.
+Jika `hasSecret` masih `false`, klik Simpan sekali lagi.
+
+> **Keamanan:** App Secret disimpan dengan AES-GCM di kolom `IntegrationConnection.metadataJson`.
+> Halaman tidak pernah menerima nilai secret yang tersimpan. Setelah disimpan, kolom secret
+> dikosongkan dari memori browser, jadi untuk menggantinya Anda harus mengetik ulang.
 
 ## Langkah 6 — Otorisasi akun
 
@@ -154,7 +165,7 @@ meminta Anda melakukan otorisasi ulang, bukan gagal diam-diam.
 
 | Kode | Arti | Tindakan |
 |---|---|---|
-| `NOT_CONFIGURED` | `.env` belum lengkap | Selesaikan langkah 5, restart |
+| `NOT_CONFIGURED` | Kredensial belum diisi | Selesaikan langkah 5 di halaman Threads |
 | `PERMISSION_DENIED` | Scope tidak disetujui | Otorisasi ulang, centang izin publikasi |
 | `RATE_LIMITED` | Terlalu banyak permintaan | Tunggu sesuai `Retry-After` |
 | `UNKNOWN_OUTCOME` | Timeout **setelah** permintaan terkirim | **Periksa akun Threads dulu.** Jangan kirim ulang — bisa terjadi duplikat |

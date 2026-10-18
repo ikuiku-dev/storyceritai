@@ -15,8 +15,8 @@ export function createState() {
   return randomBytes(24).toString("base64url");
 }
 
-export function authorizeUrl(state: string): { url: string; configured: boolean } {
-  const cfg = threadsConfig();
+export async function authorizeUrl(state: string): Promise<{ url: string; configured: boolean }> {
+  const cfg = await threadsConfig();
   if (!cfg) return { url: "", configured: false };
   const u = new URL(THREADS_OAUTH);
   u.searchParams.set("client_id", cfg.appId);
@@ -28,8 +28,8 @@ export function authorizeUrl(state: string): { url: string; configured: boolean 
 }
 
 export async function handleCallback(code: string) {
-  const cfg = threadsConfig();
-  if (!cfg) throw new ThreadsError("Threads belum dikonfigurasi di server (THREADS_APP_ID/SECRET/REDIRECT_URI).", 400, "NOT_CONFIGURED");
+  const cfg = await threadsConfig();
+  if (!cfg) throw new ThreadsError("Threads belum dikonfigurasi. Isi App ID, App Secret, dan Redirect URI di halaman Threads Integration.", 400, "NOT_CONFIGURED");
 
   const short = await exchangeCodeForToken(cfg, code.replace(/#_$/, ""));
   const shortToken = String(short.access_token ?? "");
@@ -103,7 +103,7 @@ export async function disconnect() {
 /** Public status — never includes the token. */
 export async function connectionStatus() {
   const row = await prisma.integrationConnection.findUnique({ where: { provider: "threads" } });
-  const cfg = threadsConfig();
+  const cfg = await threadsConfig();
   return {
     configuredOnServer: !!cfg,
     status: row?.status ?? "NOT_CONFIGURED",

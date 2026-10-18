@@ -16,6 +16,12 @@ const stTone = (s: string): Tone => (s === "PUBLISHED" ? "green" : s === "FAILED
 
 export function ThreadsClient() {
   const [conn, setConn] = useState<Conn | null>(null);
+  // App credentials are pasted here and stored encrypted in the database — no .env editing.
+  const [appCfg, setAppCfg] = useState<{ appIdMask: string | null; hasSecret: boolean; redirectUri: string | null; source: string } | null>(null);
+  const [fAppId, setFAppId] = useState("");
+  const [fSecret, setFSecret] = useState("");
+  const [fRedirect, setFRedirect] = useState("");
+  const [showCreds, setShowCreds] = useState(false);
   const [posts, setPosts] = useState<Post[]>([]);
   const [drafts, setDrafts] = useState<DraftOpt[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -26,6 +32,24 @@ export function ThreadsClient() {
   const [disclosure, setDisclosure] = useState(true);
   const [truthMode, setTruthMode] = useState("HYPOTHETICAL");
   const [factStatus, setFactStatus] = useState("NOT_RUN");
+
+  async function saveAppConfig() {
+    setError(null); setBusy("savedApp");
+    try {
+      await api("/api/threads/app-config", {
+        method: "POST",
+        body: JSON.stringify({
+          appId: fAppId.trim(),
+          appSecret: fSecret.trim(),
+          redirectUri: (fRedirect || appCfg?.redirectUri || "").trim(),
+        }),
+      });
+      // Clear the secret from React state as soon as it is persisted.
+      setFSecret(""); setFAppId(""); setFRedirect(""); setShowCreds(false);
+      setNotice("Kredensial tersimpan. Lanjut klik Hubungkan akun Threads.");
+      await load();
+    } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
+  }
 
   async function load() {
     try {
@@ -96,12 +120,43 @@ export function ThreadsClient() {
         <CardHeader title="Koneksi" subtitle={conn?.accountName ?? "Belum ada akun terhubung"}
           action={<Badge tone={conn?.status === "CONNECTED" ? "green" : conn?.status === "EXPIRED" ? "amber" : "neutral"}>{conn?.status === "CONNECTED" ? "terhubung" : conn?.status === "EXPIRED" ? "kedaluwarsa" : "belum terhubung"}</Badge>} />
         <div className="space-y-3 p-5">
-          {!conn?.configuredOnServer && (
-            <Callout tone="amber" title="Belum dikonfigurasi di server">
-              Isi <code className="mono text-[12px]">THREADS_APP_ID</code>, <code className="mono text-[12px]">THREADS_APP_SECRET</code>, dan{" "}
-              <code className="mono text-[12px]">THREADS_REDIRECT_URI</code> di <code className="mono text-[12px]">.env</code> lalu restart.
-              Buat app dengan use case Threads di Meta for Developers. Redirect URI harus HTTPS dan cocok persis.
-            </Callout>
+          {/* Credentials are entered here and saved encrypted; no .env editing or restart. */}
+          {(showCreds || !conn?.configuredOnServer || !appCfg?.hasSecret) && (
+            <div className="rounded-lg border hairline bg-[#fbfcfd] p-4">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[13px] font-medium text-ink-900">Kredensial App Meta</p>
+                {appCfg?.hasSecret ? <Badge tone="green">tersimpan</Badge> : <Badge tone="amber">belum diisi</Badge>}
+              </div>
+              <p className="mb-3 text-[12px] leading-relaxed text-ink-500">
+                Buat app dengan use case <span className="font-medium">Threads</span> di{" "}
+                <a className="text-brand-700 underline" href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer">Meta for Developers</a>,
+                lalu tempel nilainya di sini. App Secret disimpan <span className="font-medium">terenkripsi</span> dan tidak pernah dikirim balik ke browser.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="App ID" required hint={appCfg?.appIdMask ? `tersimpan: ${appCfg.appIdMask}` : undefined}>
+                  <Input value={fAppId} onChange={(e) => setFAppId(e.target.value)} placeholder="1234567890" autoComplete="off" />
+                </Field>
+                <Field label="App Secret" required hint={appCfg?.hasSecret ? "terenkripsi — isi ulang untuk mengganti" : undefined}>
+                  <Input type="password" value={fSecret} onChange={(e) => setFSecret(e.target.value)} placeholder="••••••••" autoComplete="new-password" />
+                </Field>
+              </div>
+              <div className="mt-3">
+                <Field label="Redirect URI" required hint="Harus HTTPS dan berakhir /api/threads/callback — cocok persis dengan yang didaftarkan di Meta.">
+                  <Input value={fRedirect || appCfg?.redirectUri || ""} onChange={(e) => setFRedirect(e.target.value)} placeholder="https://domain-anda/api/threads/callback" />
+                </Field>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button variant="primary" size="sm" loading={busy === "savedApp"} onClick={saveAppConfig}
+                  disabled={!fAppId.trim() || !fSecret.trim() || !(fRedirect || appCfg?.redirectUri)}>
+                  Simpan kredensial
+                </Button>
+                {appCfg?.hasSecret && (
+                  <Button size="sm" variant="ghost" onClick={() => setShowCreds(!showCreds)}>
+                    {showCreds ? "Tutup" : "Ganti kredensial"}
+                  </Button>
+                )}
+              </div>
+            </div>
           )}
           {conn?.configuredOnServer && conn.status !== "CONNECTED" && (
             <Button variant="primary" onClick={connect}>Hubungkan akun Threads</Button>

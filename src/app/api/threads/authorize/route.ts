@@ -8,7 +8,7 @@ export const GET = handler(async () => {
   jar.set("threads_oauth_state", state, {
     httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 600,
   });
-  const { url, configured } = authorizeUrl(state);
-  if (!configured) return ok({ configured: false, url: null, message: "THREADS_APP_ID / THREADS_APP_SECRET / THREADS_REDIRECT_URI belum diisi di .env" });
+  const { url, configured } = await authorizeUrl(state);
+  if (!configured) return ok({ configured: false, url: null, message: "Threads belum dikonfigurasi. Isi App ID, App Secret, dan Redirect URI di halaman Threads Integration." });
   return ok({ configured: true, url });
 });

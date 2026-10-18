@@ -14,19 +14,90 @@ export const THREADS_API = process.env.THREADS_API_BASE || "https://graph.thread
 export const THREADS_OAUTH = "https://threads.com/oauth/authorize";
 export const SCOPES = ["threads_basic", "threads_content_publish", "threads_manage_insights"];
 
+import { prisma } from "@/lib/db";
+import { sealSecret, openSecret, maskSecret } from "@/lib/crypto";
+
 export interface ThreadsConfig {
   appId: string;
   appSecret: string;
   redirectUri: string;
 }
 
-/** Config comes only from server env. Never from the client. */
-export function threadsConfig(): ThreadsConfig | null {
+/**
+ * Config resolution order: database first, environment as a fallback.
+ *
+ * The settings screen lets the user paste App ID / Secret / Redirect URI and stores them
+ * (secret encrypted) in IntegrationConnection.metadataJson, so a non-technical operator never
+ * has to edit .env and restart. Env keeps working for headless deployments and CI.
+ */
+export async function threadsConfig(): Promise<ThreadsConfig | null> {
+  const stored = await storedThreadsConfig();
+  if (stored) return stored;
+
   const appId = process.env.THREADS_APP_ID;
   const appSecret = process.env.THREADS_APP_SECRET;
   const redirectUri = process.env.THREADS_REDIRECT_URI;
   if (!appId || !appSecret || !redirectUri) return null;
   return { appId, appSecret, redirectUri };
+}
+
+/** Where the active config came from, so the UI can explain how it is being provided. */
+export type ConfigSource = "database" | "env" | "none";
+
+export async function threadsConfigSource(): Promise<ConfigSource> {
+  if (await storedThreadsConfig()) return "database";
+  if (process.env.THREADS_APP_ID && process.env.THREADS_APP_SECRET && process.env.THREADS_REDIRECT_URI) return "env";
+  return "none";
+}
+
+interface StoredAppConfig { appIdCipher?: string; appSecretCipher?: string; redirectUri?: string }
+
+async function storedThreadsConfig(): Promise<ThreadsConfig | null> {
+  try {
+    const row = await prisma.integrationConnection.findUnique({ where: { provider: "threads" } });
+    if (!row?.metadataJson) return null;
+    const meta = JSON.parse(row.metadataJson) as { app?: StoredAppConfig };
+    const app = meta.app;
+    if (!app?.appIdCipher || !app.appSecretCipher || !app.redirectUri) return null;
+    return { appId: openSecret(app.appIdCipher), appSecret: openSecret(app.appSecretCipher), redirectUri: app.redirectUri };
+  } catch {
+    // A corrupt row must not take the whole integration down; fall back to env.
+    return null;
+  }
+}
+
+/** Persist app credentials. The secret never leaves the server in plaintext. */
+export async function saveThreadsAppConfig(input: { appId: string; appSecret: string; redirectUri: string }) {
+  const existing = await prisma.integrationConnection.findUnique({ where: { provider: "threads" } });
+  const meta = existing?.metadataJson ? (JSON.parse(existing.metadataJson) as Record<string, unknown>) : {};
+  meta.app = {
+    appIdCipher: sealSecret(input.appId.trim()),
+    appSecretCipher: sealSecret(input.appSecret.trim()),
+    redirectUri: input.redirectUri.trim(),
+  } satisfies StoredAppConfig;
+
+  await prisma.integrationConnection.upsert({
+    where: { provider: "threads" },
+    create: { provider: "threads", status: "NOT_CONNECTED", metadataJson: JSON.stringify(meta) },
+    update: { metadataJson: JSON.stringify(meta) },
+  });
+}
+
+/** Non-secret view for the settings screen: masked id/secret, exact redirect URI. */
+export async function threadsAppConfigView() {
+  const row = await prisma.integrationConnection.findUnique({ where: { provider: "threads" } });
+  let appIdMask: string | null = null;
+  let redirectUri: string | null = null;
+  let hasSecret = false;
+  if (row?.metadataJson) {
+    try {
+      const meta = JSON.parse(row.metadataJson) as { app?: StoredAppConfig };
+      if (meta.app?.appIdCipher) appIdMask = maskSecret(openSecret(meta.app.appIdCipher));
+      if (meta.app?.appSecretCipher) hasSecret = true;
+      redirectUri = meta.app?.redirectUri ?? null;
+    } catch { /* ignore corrupt metadata */ }
+  }
+  return { appIdMask, hasSecret, redirectUri, source: await threadsConfigSource() };
 }
 
 export class ThreadsError extends Error {

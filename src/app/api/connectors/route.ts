@@ -1,4 +1,5 @@
 import { handler, ok } from "@/lib/api";
+import { threadsConfigSource } from "@/lib/services/publishing/threads";
 import { prisma } from "@/lib/db";
 import { readHealth } from "@/lib/connectors/base";
 import { capabilities as shopeeCaps, validateConfig as shopeeValidate, resolveMode } from "@/lib/connectors/shopee";
@@ -20,11 +21,11 @@ export const GET = handler(async () => {
       kind: "publishing",
       accessMethod: "oauth",
       status: threadConn?.status ?? "NOT_CONFIGURED",
-      configured: Boolean(process.env.THREADS_APP_ID && process.env.THREADS_APP_SECRET),
+      configured: (await threadsConfigSource()) !== "none",
       account: threadConn?.accountName ?? null,
       tokenExpiresAt: threadConn?.tokenExpiresAt?.toISOString() ?? null,
       health: rows.find((r) => r.connectorId === "threads") ?? null,
-      note: "OAuth resmi Meta. Kredensial hanya di server (.env).",
+      note: "OAuth resmi Meta. App Secret disimpan terenkripsi di database, tidak pernah dikirim ke browser.",
     },
     {
       id: "shopee",
